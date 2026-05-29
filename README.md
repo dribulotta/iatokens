@@ -1,18 +1,22 @@
 # Arquitectura tri-capa para agentes autónomos
 
-## Separar ejecución determinista, IA local e IA cloud para reducir tokens, latencia y exposición de datos
+## Separar ejecución determinista, motor de IA local e IA cloud para reducir tokens, latencia y exposición de datos
 
-> Este documento resume una arquitectura práctica para construir agentes autónomos en producción. No es un paper académico ni un benchmark universal. Está basado en experiencia real desarrollando agentes locales sobre OpenClaw, con foco en soberanía de datos, eficiencia operativa y uso responsable de modelos de lenguaje.
+> Este documento resume una arquitectura práctica para construir agentes autónomos en producción. No es un paper académico ni un benchmark universal. Está basado en experiencia real desarrollando un agente experimental de monitoreo financiero sobre OpenClaw, con foco en soberanía de datos, eficiencia operativa y uso selectivo de modelos de lenguaje.
 
 ---
 
 ## Resumen
 
-Muchos sistemas de agentes basados en LLMs terminan usando modelos de frontera en la nube para casi todo: leer datos crudos, repetir cálculos, revisar estados, interpretar eventos simples, formatear alertas y responder al usuario.
+Este documento presenta una arquitectura tri-capa para agentes autónomos basada en la experiencia práctica desarrollando **Warren**, un agente experimental de monitoreo financiero que funciona sobre **OpenClaw** y que utilizo para evaluar oportunidades, generar alertas y optimizar procesos de análisis de inversiones.
 
-Ese enfoque funciona bien para prototipos, pero en producción aparece un problema estructural: el costo, la latencia y la exposición de datos crecen con la frecuencia de ejecución del agente, no con la dificultad real de la tarea.
+En sus primeras versiones, Warren dependía casi por completo de modelos de lenguaje externos. Primero utilizó Gemini como proveedor principal y luego migró hacia ChatGPT por su facilidad de integración con herramientas, autorización mediante OAuth y flujos de agentes conectados.
 
-Este documento propone una arquitectura tri-capa:
+Esa primera aproximación permitió avanzar rápido, pero expuso un problema concreto: el consumo de tokens crecía demasiado rápido. En pocas horas de uso intensivo, el cupo o crédito disponible del plan podía agotarse, principalmente porque el agente estaba usando inferencia externa para tareas rutinarias que no lo requerían.
+
+El problema observado fue claro: muchos agentes basados en LLMs terminan usando modelos de frontera en la nube para tareas que pueden resolverse mejor con código, reglas, estado local o IA ejecutada en infraestructura propia.
+
+La arquitectura propuesta separa el sistema en tres capas:
 
 1. **Capa 1 — Operativa determinista:** código local para tareas repetitivas, numéricas, transaccionales y de alta frecuencia.
 2. **Capa 2 — Motor de IA local / Edge AI:** modelos abiertos ejecutados localmente para clasificación, extracción, resumen, ruteo semántico y razonamiento intermedio.
@@ -22,7 +26,7 @@ La idea central es simple:
 
 > **No todo lo que parece inteligente necesita pasar por un LLM de frontera.**
 
-En los agentes descritos acá, la mayor parte del trabajo continuo se resuelve localmente. La nube queda reservada para casos donde agrega valor real.
+En esta arquitectura, la nube no desaparece. Se usa mejor: como escalamiento selectivo, no como motor permanente de ejecución.
 
 ---
 
@@ -64,7 +68,37 @@ Datos financieros, correos, documentos internos, logs, credenciales, sesiones, h
 
 ---
 
-## 2. Principio de diseño
+## 2. Origen del enfoque
+
+Esta arquitectura surge de la experiencia desarrollando y utilizando **Warren**, un agente experimental de monitoreo financiero que funciona sobre **OpenClaw**.
+
+Warren fue creado para evaluar oportunidades, generar alertas y optimizar procesos de análisis de inversiones. No nació como un ejercicio teórico, sino como respuesta a una necesidad práctica: monitorear información de mercado de forma frecuente, detectar condiciones relevantes, reducir trabajo manual y evitar que cada evaluación rutinaria dependiera de un modelo de lenguaje externo.
+
+En sus primeras versiones, Warren era un agente mucho más dependiente de inferencia externa. El flujo inicial se apoyaba casi por completo en un LLM cloud, primero utilizando Gemini como proveedor principal. Más adelante, la implementación migró hacia ChatGPT por la facilidad de configuración, especialmente en escenarios donde OpenClaw necesitaba interactuar con servicios externos, autorización mediante OAuth y herramientas conectadas.
+
+En la práctica, ChatGPT terminó siendo, dentro de mi implementación, el proveedor externo de IA más simple de integrar con agentes como OpenClaw sin agregar demasiada complejidad operativa. Esta afirmación no pretende ser universal: describe una experiencia concreta de implementación, integración y mantenimiento.
+
+Sin embargo, esa comodidad tuvo un costo claro: el consumo de tokens crecía demasiado rápido.
+
+Durante las primeras pruebas, el consumo era tan alto que el cupo o crédito disponible del plan se agotaba en pocas horas. El problema no era que el modelo respondiera mal, sino que estaba siendo usado para tareas que no justificaban una llamada constante a un LLM externo: revisar datos repetitivos, validar umbrales, interpretar estados simples, formatear alertas o confirmar que no había ocurrido ningún evento relevante.
+
+Esa experiencia fue el punto de quiebre.
+
+La pregunta dejó de ser:
+
+> **¿Qué modelo cloud uso para que Warren piense mejor?**
+
+Y pasó a ser:
+
+> **¿Qué partes del sistema realmente necesitan un LLM externo?**
+
+A partir de ahí, la arquitectura empezó a evolucionar hacia una separación más clara de responsabilidades: código determinista para el trabajo repetitivo, IA local para interpretación y ruteo, y modelos cloud solo para los casos donde aportan valor real.
+
+La arquitectura tri-capa nace de esa experiencia.
+
+---
+
+## 3. Principio de diseño
 
 La arquitectura se basa en una regla práctica:
 
@@ -80,39 +114,45 @@ No se trata de evitar la IA cloud. Se trata de usarla donde corresponde.
 
 La pregunta clave no es:
 
-> “¿Puede hacerlo un LLM?”
+> **¿Puede hacerlo un LLM?**
 
 La pregunta correcta es:
 
-> “¿Necesita hacerlo un LLM de frontera externo?”
+> **¿Necesita hacerlo un LLM de frontera externo?**
 
 Muchas veces la respuesta es no.
 
 ---
 
-## 3. Visión general de la arquitectura
+## 4. Visión general de la arquitectura
+
+La arquitectura puede leerse de arriba hacia abajo como una jerarquía de decisión:
+
+1. **Capa 3:** define criterio, razona y orquesta cuando el caso lo requiere.
+2. **Capa 2:** interpreta, filtra, resume, estructura y enruta.
+3. **Capa 1:** ejecuta acciones concretas, repetitivas y auditables.
+
+La Capa 3 no ejecuta directamente. Su función es decidir o asistir en decisiones complejas. La ejecución operativa queda en la Capa 1, donde las acciones pueden ser controladas, registradas y validadas.
 
 ```mermaid
 flowchart TB
-    L3["Capa 3 — Cognitiva cloud<br/>Modelos de frontera<br/><br/>Razonamiento complejo, ambigüedad,<br/>diálogo avanzado, decisiones excepcionales"]
+    L3["Capa 3 — Cognitiva cloud / Orquestación superior<br/>Modelos de frontera<br/><br/>Razonamiento complejo, ambigüedad,<br/>decisiones excepcionales, redefinición de criterios"]
+    
     L2["Capa 2 — Motor de IA local / Edge AI<br/>Modelos abiertos grandes, MoE, Whisper,<br/>embeddings, parsers semánticos<br/><br/>Clasificación, extracción, resumen,<br/>ruteo, transcripción y razonamiento intermedio"]
-    L1["Capa 1 — Operativa determinista<br/>Python, cron/systemd, SQLite/JSONL,<br/>APIs locales, reglas, alertas<br/><br/>Ejecución repetitiva, estado,<br/>cálculo y automatización"]
+    
+    L1["Capa 1 — Operativa determinista<br/>Python, cron/systemd, SQLite/JSONL,<br/>APIs locales, reglas, alertas<br/><br/>Ejecución repetitiva, estado,<br/>cálculo, automatización y acciones concretas"]
 
-    L1 -->|"eventos, estado estructurado, JSON"| L2
-    L2 -->|"contexto mínimo, flags, baja confianza"| L3
     L3 -->|"criterios, decisiones, instrucciones"| L2
-    L2 -->|"reglas actualizadas, JSON, acciones"| L1
+    L2 -->|"JSON estructurado, reglas, acciones propuestas"| L1
+    L1 -->|"eventos, métricas, logs, estado"| L2
+    L2 -->|"baja confianza, ambigüedad, excepción"| L3
 ```
 
-Cada capa tiene una responsabilidad distinta.
-
-La Capa 1 ejecuta.
-La Capa 2 entiende, filtra y enruta.
-La Capa 3 razona cuando realmente hace falta.
+En operación normal, muchas tareas nacen y mueren en la Capa 1. Solo suben a la Capa 2 o Capa 3 cuando aparece lenguaje, ambigüedad, riesgo o necesidad de razonamiento.
 
 ---
 
-## 4. Capa 1: operativa determinista
+## 5. Capa 1: operativa determinista
 
 La Capa 1 es el músculo del sistema.
 
@@ -151,7 +191,7 @@ El LLM no aporta valor en ese loop.
 
 ---
 
-## 5. Capa 2: motor de IA local / Edge AI
+## 6. Capa 2: motor de IA local / Edge AI
 
 La Capa 2 resuelve tareas donde el lenguaje importa, pero donde no siempre se justifica enviar datos a la nube.
 
@@ -165,7 +205,7 @@ Por eso, la evolución natural es tratar la Capa 2 como un **motor de IA local**
 
 Ese motor puede estar compuesto por uno o más nodos dedicados, con memoria suficiente para ejecutar modelos abiertos grandes, mantener contexto largo y servir inferencia a varios agentes internos.
 
-### 5.1 De filtro local a motor cognitivo local
+### 6.1 De filtro local a motor cognitivo local
 
 ```text
 Antes:
@@ -193,7 +233,7 @@ La Capa 2 puede encargarse de:
 * ejecutar razonamiento local cuando el caso no justifica usar un modelo externo;
 * mantener datos dentro de la infraestructura propia.
 
-### 5.2 Hardware local de nueva generación
+### 6.2 Hardware local de nueva generación
 
 Una topología más adecuada para esta Capa 2 puede apoyarse en equipos con memoria unificada grande, como sistemas basados en NVIDIA GB10 / DGX Spark o hardware equivalente.
 
@@ -215,7 +255,7 @@ La forma más correcta de expresarlo es:
 
 > **modelos abiertos de escala 100B–200B+, especialmente arquitecturas MoE donde no todos los parámetros se activan por token.**
 
-### 5.3 Memoria unificada y nodos acoplados
+### 6.3 Memoria unificada y nodos acoplados
 
 El atractivo de equipos como DGX Spark es que permiten ejecutar cargas de IA local que antes obligaban a depender de la nube o de servidores mucho más costosos.
 
@@ -246,7 +286,7 @@ Pero el salto conceptual es importante: la Capa 2 deja de ser una optimización 
 
 ---
 
-## 6. Capa 3: cognitiva cloud
+## 7. Capa 3: cognitiva cloud
 
 La Capa 3 es la capa más cara y más capaz.
 
@@ -269,69 +309,34 @@ En lugar de usar la nube como motor permanente, se la usa como escalamiento sele
 
 ---
 
-## 7. Implementación en OpenClaw
+## 8. Implementación en OpenClaw
 
-Esta arquitectura fue aplicada en dos agentes autónomos construidos sobre OpenClaw:
+Esta arquitectura fue aplicada y refinada a partir de Warren, un agente experimental construido sobre OpenClaw.
 
-* **JARVIS**, orientado a productividad, gestión personal y operación diaria.
-* **Warren**, orientado a monitoreo financiero, señales y detección de oportunidades.
+OpenClaw aporta el marco de agente, herramientas, memoria, interacción con modelos y coordinación general. Pero la eficiencia del sistema depende de separar correctamente qué debe resolverse con código, qué puede resolverse con IA local y qué realmente justifica escalar a modelos de frontera en la nube.
 
-Los nombres son internos. Lo importante no son los nombres, sino el patrón de separación de responsabilidades.
-
-OpenClaw funciona como framework de agentes y permite coordinar herramientas, memoria, tareas, llamadas a modelos y procesos externos.
-
-La arquitectura tri-capa puede implementarse dentro de OpenClaw o fuera de él. Lo relevante es mantener la separación entre:
+La arquitectura tri-capa puede implementarse dentro de OpenClaw o fuera de él. Lo relevante no es el framework específico, sino mantener la separación entre:
 
 * ejecución determinista;
 * inteligencia local;
-* razonamiento cloud.
+* razonamiento cloud;
+* control humano en acciones sensibles.
 
 ---
 
-## 8. Caso 1: JARVIS
+## 9. Caso principal: Warren
 
-JARVIS actúa como agente de productividad y coordinación operativa.
+Warren es un agente experimental de monitoreo financiero que funciona sobre **OpenClaw** y que utilizo para evaluar oportunidades, generar alertas y optimizar procesos de análisis de inversiones.
 
-Su objetivo no es “pensar todo el tiempo”, sino reducir fricción en tareas cotidianas.
+Su objetivo principal no es reemplazar el criterio humano, sino reducir fricción operativa: monitorear datos de mercado, detectar condiciones relevantes, organizar señales y asistir en el análisis.
 
-Ejemplos de responsabilidades:
+En sus primeras versiones, Warren era mucho más dependiente de modelos externos. El agente utilizaba Gemini como LLM principal y luego migró hacia ChatGPT por su facilidad de configuración e integración dentro de flujos de agentes conectados.
 
-* interpretar pedidos del usuario;
-* revisar prioridades;
-* estructurar información antes de enviarla a un modelo más potente;
-* evitar reenviar contexto redundante;
-* preparar datos en JSON;
-* decidir si una tarea puede resolverse localmente o requiere escalamiento;
-* coordinar herramientas;
-* mantener continuidad operativa.
+Esa etapa inicial fue útil para validar el concepto, pero también mostró rápidamente el límite económico del enfoque. El consumo de tokens era demasiado alto para un agente que monitoreaba información de forma frecuente. En pocas horas, el cupo disponible podía agotarse sin que necesariamente se hubiera generado valor proporcional.
 
-Un patrón útil es que JARVIS no alimenta a la Capa 3 con todo el flujo de correos, mensajes o eventos.
+El problema era arquitectónico: Warren estaba usando inferencia externa para tareas que podían resolverse mejor localmente.
 
-Primero filtra, resume, clasifica y compacta.
-
-Esto reduce tokens y también mejora privacidad, porque la nube recibe menos datos y mejor seleccionados.
-
-### Ejemplo de flujo
-
-```text
-Usuario → JARVIS → Capa 1 valida si hay acción directa
-                 → Capa 2 interpreta intención y extrae entidades
-                 → Capa 3 solo si hay ambigüedad o razonamiento complejo
-```
-
-Si el usuario pide “recordame revisar esto mañana”, no hace falta un modelo de frontera.
-
-Si el usuario pide “analizá esta conversación y decime cómo responder sin escalar el conflicto”, probablemente sí.
-
----
-
-## 9. Caso 2: Warren
-
-Warren es un agente de monitoreo financiero.
-
-Su trabajo principal es correr scanners locales y detectar eventos accionables a partir de reglas, datos de mercado y cálculos.
-
-Algunos ejemplos de tareas:
+En la práctica, muchas de sus tareas eran deterministas:
 
 * monitoreo de arbitrajes entre instrumentos;
 * comparación de plazos de liquidación;
@@ -342,7 +347,7 @@ Algunos ejemplos de tareas:
 * generación de logs auditables;
 * revisión posterior de eventos.
 
-La parte crítica es que Warren no usa un LLM para decidir cada minuto si existe o no una oportunidad.
+La parte crítica es que Warren no necesita un LLM para decidir cada minuto si existe o no una oportunidad.
 
 Eso lo hace la Capa 1.
 
@@ -356,15 +361,33 @@ El LLM puede aparecer después, si el usuario pide:
 * una comparación entre oportunidades;
 * una mejora del criterio de filtrado.
 
+Warren fue el caso que hizo visible el problema de fondo: si cada iteración de monitoreo financiero depende de un modelo cloud, el sistema se vuelve más caro, más lento y menos controlable.
+
+En cambio, al separar ejecución determinista, IA local y razonamiento cloud, el agente puede trabajar de forma continua sin convertir cada evento en una llamada innecesaria a un LLM externo.
+
 ### Importante
 
 Warren no debe interpretarse como asesoramiento financiero automático.
 
-Es un sistema de monitoreo y asistencia. Las decisiones finales, validaciones de riesgo y ejecución deben quedar bajo control humano y reglas explícitas.
+Es un sistema experimental de monitoreo y asistencia. Las decisiones finales, validaciones de riesgo y ejecución deben quedar bajo control humano y reglas explícitas.
 
 ---
 
-## 10. Modelo simple de consumo de tokens
+## 10. Posible extensión: otros agentes internos
+
+Aunque el caso que dio origen a esta arquitectura fue Warren, el patrón aplica a otros agentes.
+
+Por ejemplo, un agente de productividad personal u operativo, como JARVIS, puede usar la misma separación:
+
+* Capa 1 para agenda, recordatorios, consultas estructuradas, automatizaciones y acciones repetitivas;
+* Capa 2 para interpretar intención, resumir información local y preparar contexto;
+* Capa 3 para redacción compleja, análisis ambiguo, negociación, estrategia o conversaciones delicadas.
+
+El patrón es el mismo: evitar que cada evento cotidiano termine convertido en una llamada a un modelo cloud.
+
+---
+
+## 11. Modelo simple de consumo de tokens
 
 Para estimar el impacto, tomemos una jornada de mercado de 9 horas.
 
@@ -378,7 +401,7 @@ Supongamos los siguientes procesos:
 | Scanners swing / señales adicionales |   variable |                             224 |
 | **Total**                            |            |                       **1.142** |
 
-### 10.1 Escenario A: agente monolítico cloud
+### 11.1 Escenario A: agente monolítico cloud
 
 En un diseño monolítico, cada ejecución manda contexto al LLM cloud.
 
@@ -404,7 +427,7 @@ La mayoría de ese consumo se gastaría en confirmar que no ocurrió nada releva
 
 Este es el problema del agente FOMO: consume recursos cognitivos caros para tareas que no tienen valor cognitivo proporcional.
 
-### 10.2 Escenario B: arquitectura tri-capa
+### 11.2 Escenario B: arquitectura tri-capa
 
 En la arquitectura tri-capa:
 
@@ -423,7 +446,7 @@ Pero el costo variable por ejecución rutinaria puede bajar drásticamente.
 
 ---
 
-## 11. De ahorro de tokens a soberanía operativa
+## 12. De ahorro de tokens a soberanía operativa
 
 La reducción de tokens es solo una parte del beneficio.
 
@@ -457,7 +480,7 @@ Se resuelve diseñando bien el flujo de datos.
 
 ---
 
-## 12. Reglas de ruteo
+## 13. Reglas de ruteo
 
 Una implementación práctica necesita reglas claras para decidir cuándo escalar.
 
@@ -490,7 +513,7 @@ La arquitectura mejora con el tiempo cuando las tareas frecuentes dejan de ser p
 
 ---
 
-## 13. Métricas recomendadas
+## 14. Métricas recomendadas
 
 Para saber si la arquitectura funciona, conviene medir:
 
@@ -513,11 +536,11 @@ Sin métricas, es fácil confundir “agente inteligente” con “agente que ll
 
 ---
 
-## 14. Infraestructura sugerida
+## 15. Infraestructura sugerida
 
 Una topología posible para esta arquitectura puede organizarse así:
 
-### 14.1 Nodo operativo
+### 15.1 Nodo operativo
 
 Responsable de la Capa 1.
 
@@ -535,7 +558,7 @@ Funciones:
 * colas de tareas;
 * monitoreo.
 
-### 14.2 Nodo de IA local
+### 15.2 Nodo de IA local
 
 Responsable de la Capa 2.
 
@@ -553,7 +576,7 @@ Funciones:
 * razonamiento local;
 * preparación de contexto.
 
-### 14.3 Nodo cloud externo
+### 15.3 Nodo cloud externo
 
 Responsable de la Capa 3.
 
@@ -569,7 +592,7 @@ Funciones:
 
 ---
 
-## 15. Evolución esperada de la Capa 2
+## 16. Evolución esperada de la Capa 2
 
 La Capa 2 es probablemente la parte más interesante de esta arquitectura.
 
@@ -588,8 +611,8 @@ Dato crudo → IA local grande → razonamiento local → acción o escalamiento
 En una tercera etapa, puede funcionar como una infraestructura compartida para varios agentes:
 
 ```text
-JARVIS ┐
-Warren ├── Motor IA local ── Modelos abiertos grandes ── Herramientas internas
+Warren ┐
+JARVIS ├── Motor IA local ── Modelos abiertos grandes ── Herramientas internas
 Otros  ┘
 ```
 
@@ -597,7 +620,7 @@ Esto abre la puerta a un sistema donde varios agentes especializados comparten u
 
 ---
 
-## 16. Seguridad y control humano
+## 17. Seguridad y control humano
 
 Una arquitectura de agentes autónomos no debería confundirse con autonomía irrestricta.
 
@@ -623,33 +646,33 @@ El humano puede quedar como aprobador final en acciones críticas.
 
 ---
 
-## 17. Lecciones aprendidas
+## 18. Lecciones aprendidas
 
-### 17.1 El estado importa más que el prompt
+### 18.1 El estado importa más que el prompt
 
 Muchos problemas de agentes no se resuelven con prompts más largos, sino con mejor manejo de estado.
 
 Un archivo de estado bien diseñado, una base local, deduplicación y logs claros reducen más tokens que cualquier optimización cosmética del prompt.
 
-### 17.2 Los LLMs son malos reemplazos de reglas simples
+### 18.2 Los LLMs son malos reemplazos de reglas simples
 
 Un LLM puede explicar una regla, pero no debería ser necesario para ejecutarla cada minuto.
 
 Si la decisión puede expresarse como código, el código suele ser más barato, rápido y auditable.
 
-### 17.3 La IA local no tiene que ser perfecta
+### 18.3 La IA local no tiene que ser perfecta
 
 La Capa 2 no necesita competir siempre con un modelo de frontera.
 
 Necesita ser suficientemente buena para filtrar, estructurar, resumir y decidir cuándo escalar.
 
-### 17.4 La nube debe recibir contexto, no ruido
+### 18.4 La nube debe recibir contexto, no ruido
 
 Cuando la Capa 3 recibe menos información pero mejor preparada, suele responder mejor.
 
 El objetivo no es ocultarle información útil al modelo, sino evitar enviarle datos repetidos, sensibles o irrelevantes.
 
-### 17.5 La arquitectura mejora cuando las tareas se estabilizan
+### 18.5 La arquitectura mejora cuando las tareas se estabilizan
 
 Una tarea nueva puede empezar en Capa 3.
 
@@ -659,9 +682,17 @@ Si se vuelve predecible, puede terminar en Capa 1.
 
 Ese movimiento descendente es una forma práctica de optimización continua.
 
+### 18.6 La facilidad de integración puede ocultar un problema de arquitectura
+
+Usar un proveedor externo simple de configurar acelera el prototipo.
+
+Pero si el agente empieza a usarlo para todo, la facilidad inicial puede ocultar un problema mayor: el sistema queda atado a consumo constante de tokens, latencia externa y exposición recurrente de datos.
+
+La solución no es necesariamente cambiar de proveedor. Muchas veces la solución es cambiar la arquitectura.
+
 ---
 
-## 18. Limitaciones
+## 19. Limitaciones
 
 Esta arquitectura no elimina todos los problemas.
 
@@ -691,7 +722,7 @@ Es especialmente útil cuando hay:
 
 ---
 
-## 19. Trabajo futuro
+## 20. Trabajo futuro
 
 Líneas de mejora:
 
@@ -707,11 +738,13 @@ Líneas de mejora:
 * evaluación comparativa entre modelos locales MoE;
 * políticas de anonimización antes de escalar a cloud;
 * memoria compartida entre agentes con permisos diferenciados;
-* auditoría de decisiones automatizadas.
+* auditoría de decisiones automatizadas;
+* pruebas con nodos locales acoplados para modelos abiertos grandes;
+* análisis real de costo total entre tokens cloud y CAPEX local.
 
 ---
 
-## 20. Conclusión
+## 21. Conclusión
 
 La principal conclusión de esta experiencia es que los agentes autónomos en producción no deberían construirse como una llamada permanente a un LLM de frontera.
 
@@ -724,6 +757,10 @@ Un agente robusto necesita separar responsabilidades:
 La arquitectura tri-capa no busca reemplazar los modelos de frontera.
 
 Busca usarlos mejor.
+
+Warren empezó como un agente fuertemente dependiente de modelos externos. Esa etapa fue útil para validar el concepto, pero también mostró rápidamente sus límites: consumo elevado de tokens, costo operativo creciente y baja eficiencia para tareas repetitivas.
+
+La evolución hacia una arquitectura tri-capa fue una respuesta práctica a ese problema.
 
 Cuando la nube deja de hacer trabajo rutinario, se vuelve más barata, más segura y más útil.
 
